@@ -1,0 +1,5 @@
+#IDE
+.idea/
+
+#Binary
+go-http-server
