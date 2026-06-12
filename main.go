@@ -23,10 +23,9 @@ func main() {
 		),
 	)
 
-	mux.HandleFunc("/metrics", cfg.readMetricsHandler)
-	mux.HandleFunc("/reset", cfg.resetMetricsHandler)
-
-	mux.HandleFunc("/healthz", readinessHandler)
+	mux.HandleFunc("POST /admin/reset", cfg.resetMetricsHandler)
+	mux.HandleFunc("GET /admin/metrics", cfg.readMetricsHandler)
+	mux.HandleFunc("GET /api/healthz", readinessHandler)
 
 	server := &http.Server{
 		Handler: mux,
