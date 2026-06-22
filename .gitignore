@@ -1,5 +1,8 @@
 #IDE
 .idea/
 
+#.env
+.env
+
 #Binary
 go-http-server
