@@ -61,9 +61,10 @@ func main() {
 	log.Fatal(server.ListenAndServe())
 }
 
-func validateChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 	type Chirp struct {
-		Body string `json:"body"`
+		Body   string    `json:"body"`
+		UserId uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -81,11 +82,27 @@ func validateChirp(w http.ResponseWriter, r *http.Request) {
 	cleanedBody := censorProfanity(chirp.Body)
 
 	type Payload struct {
-		CleanedBody string `json:"cleaned_body"`
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Body      string    `json:"body"`
+		UserId    uuid.UUID `json:"user_id"`
 	}
 
-	payload := &Payload{CleanedBody: cleanedBody}
-	respondWithJSON(w, http.StatusOK, payload)
+	newChirp, err := cfg.database.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanedBody, UserID: chirp.UserId})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong with chirp creation")
+		return
+	}
+
+	payload := &Payload{
+		ID:        newChirp.ID,
+		CreatedAt: newChirp.CreatedAt,
+		UpdatedAt: newChirp.UpdatedAt,
+		Body:      cleanedBody,
+		UserId:    chirp.UserId,
+	}
+	respondWithJSON(w, http.StatusCreated, payload)
 }
 
 func censorProfanity(chirp string) string {
