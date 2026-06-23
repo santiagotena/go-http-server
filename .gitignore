@@ -4,5 +4,8 @@
 #.env
 .env
 
+#sqlc
+/internal/database/
+
 #Binary
 go-http-server
