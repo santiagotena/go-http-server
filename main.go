@@ -118,7 +118,32 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.database.GetAllChirps(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong while getting chirps")
+		return
+	}
 
+	type Chirp struct {
+		Id        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Body      string    `json:"body"`
+		UserId    uuid.UUID `json:"user_id"`
+	}
+
+	var payload []Chirp
+	for _, chirp := range chirps {
+		chirp := Chirp{
+			Id:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserId:    chirp.UserID,
+		}
+		payload = append(payload, chirp)
+	}
+	respondWithJSON(w, http.StatusOK, payload)
 }
 
 func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
