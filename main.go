@@ -19,7 +19,10 @@ import (
 import _ "github.com/lib/pq"
 
 func main() {
-	godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		return
+	}
 	platform := os.Getenv("PLATFORM")
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
@@ -186,12 +189,12 @@ type apiConfig struct {
 }
 
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
-	type user struct {
+	type User struct {
 		Email string `json:"email"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	u := user{}
+	u := User{}
 	err := decoder.Decode(&u)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
