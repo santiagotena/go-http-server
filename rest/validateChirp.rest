@@ -1,0 +1,37 @@
+POST http://localhost:8080/api/chirps
+Content-Type: application/json
+
+{
+  "body": 5,
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+
+###
+
+POST http://localhost:8080/api/chirps
+Content-Type: application/json
+
+{
+  "body": "I am too long ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... .........",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+
+###
+
+POST http://localhost:8080/api/chirps
+Content-Type: application/json
+
+{
+  "body": "I am valid",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+
+###
+
+POST http://localhost:8080/api/chirps
+Content-Type: application/json
+
+{
+  "body": "This is a kerfuffle opinion I need to share with the world",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"
+}
