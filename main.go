@@ -24,6 +24,31 @@ func main() {
 	const filepathRoot = "."
 	const port = "8080"
 
+	platform, dbURL, jwtSecret := loadEnvironmentVariables()
+	dbConn, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("error connecting to the database: %s", err)
+	}
+	dbQueries := database.New(dbConn)
+
+	apiCfg := &apiConfig{
+		database:  dbQueries,
+		platform:  platform,
+		jwtSecret: jwtSecret,
+	}
+
+	mux := http.NewServeMux()
+	setupMux(mux, apiCfg, filepathRoot)
+
+	server := &http.Server{
+		Handler: mux,
+		Addr:    ":" + port,
+	}
+
+	log.Fatal(server.ListenAndServe())
+}
+
+func loadEnvironmentVariables() (string, string, string) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -41,22 +66,11 @@ func main() {
 		log.Fatal("JWT_SECRET environment variable not set")
 	}
 
-	dbConn, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		log.Fatalf("error connecting to the database: %s", err)
-	}
-	dbQueries := database.New(dbConn)
+	return platform, dbURL, platform
+}
 
-	apiCfg := &apiConfig{
-		database:  dbQueries,
-		platform:  platform,
-		jwtSecret: jwtSecret,
-	}
-
-	mux := http.NewServeMux()
-
+func setupMux(mux *http.ServeMux, apiCfg *apiConfig, filepathRoot string) {
 	fileServer := http.FileServer(http.Dir(filepathRoot))
-
 	mux.Handle(
 		"/app/",
 		apiCfg.middlewareMetricsInc(
@@ -74,11 +88,4 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
-
-	server := &http.Server{
-		Handler: mux,
-		Addr:    ":" + port,
-	}
-
-	log.Fatal(server.ListenAndServe())
 }

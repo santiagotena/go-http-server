@@ -7,7 +7,7 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	err := cfg.database.DeleteUser(r.Context())
+	err := cfg.database.DeleteAllUsers(r.Context())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not delete users", err)
 		return
