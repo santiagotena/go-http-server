@@ -8,7 +8,7 @@ import (
 	"github.com/santiagotena/go-http-server/internal/auth"
 )
 
-func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Password         string `json:"password"`
 		Email            string `json:"email"`

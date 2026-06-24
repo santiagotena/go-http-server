@@ -19,8 +19,8 @@ type Chirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
-func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
-	type Chirp struct {
+func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
 		Body string `json:"body"`
 	}
 
@@ -36,41 +36,34 @@ func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	chirp := Chirp{}
-	err = decoder.Decode(&chirp)
+	params := parameters{}
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong", err)
 		return
 	}
-	if len(chirp.Body) > 140 {
+	if len(params.Body) > 140 {
 		respondWithError(w, http.StatusBadRequest, "Chirp is too long", err)
 		return
 	}
 
-	cleanedBody := censorProfanity(chirp.Body)
-
-	type Payload struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Body      string    `json:"body"`
-		UserID    uuid.UUID `json:"user_id"`
-	}
-
-	newChirp, err := cfg.database.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanedBody, UserID: userID})
+	cleanedBody := censorProfanity(params.Body)
+	chirp, err := cfg.database.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: userID,
+	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong with chirp creation", err)
 		return
 	}
 
-	payload := &Payload{
-		ID:        newChirp.ID,
-		CreatedAt: newChirp.CreatedAt,
-		UpdatedAt: newChirp.UpdatedAt,
-		Body:      cleanedBody,
-		UserID:    userID,
-	}
-	respondWithJSON(w, http.StatusCreated, payload)
+	respondWithJSON(w, http.StatusCreated, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	})
 }
 
 func censorProfanity(chirp string) string {
