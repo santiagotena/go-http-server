@@ -13,53 +13,70 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/santiagotena/go-http-server/internal/auth"
 	"github.com/santiagotena/go-http-server/internal/database"
 )
 
 import _ "github.com/lib/pq"
 
 func main() {
+	const filepathRoot = "."
+	const port = "8080"
+
 	err := godotenv.Load()
 	if err != nil {
-		return
+		log.Fatal("Error loading .env file")
 	}
 	platform := os.Getenv("PLATFORM")
+	if platform == "" {
+		log.Fatal("PLATFORM environment variable not set")
+	}
 	dbURL := os.Getenv("DB_URL")
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		log.Fatal(err)
+	if dbURL == "" {
+		log.Fatal("DB_URL environment variable not set")
+	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable not set")
 	}
 
-	dbQueries := database.New(db)
+	dbConn, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("error connecting to the database: %s", err)
+	}
+	dbQueries := database.New(dbConn)
 
-	cfg := &apiConfig{
-		database: dbQueries,
-		platform: platform,
+	apiCfg := &apiConfig{
+		database:  dbQueries,
+		platform:  platform,
+		jwtSecret: jwtSecret,
 	}
 
 	mux := http.NewServeMux()
 
-	fileServer := http.FileServer(http.Dir("."))
+	fileServer := http.FileServer(http.Dir(filepathRoot))
 
 	mux.Handle(
 		"/app/",
-		cfg.middlewareMetricsInc(
+		apiCfg.middlewareMetricsInc(
 			middlewareLog(
 				http.StripPrefix("/app", fileServer),
 			),
 		),
 	)
 
-	mux.HandleFunc("POST /api/users", cfg.createUserHandler)
-	mux.HandleFunc("GET /api/chirps", cfg.getChirps)
-	mux.HandleFunc("POST /api/chirps", cfg.validateChirp)
-	mux.HandleFunc("GET /admin/metrics", cfg.readMetricsHandler)
-	mux.HandleFunc("POST /admin/reset", cfg.resetBackEndHandler)
+	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
+	mux.HandleFunc("POST /api/login", apiCfg.loginUserHandler)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	mux.HandleFunc("POST /api/chirps", apiCfg.validateChirp)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.readMetricsHandler)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetBackEndHandler)
 	mux.HandleFunc("GET /api/healthz", readinessHandler)
 
 	server := &http.Server{
 		Handler: mux,
-		Addr:    ":8080",
+		Addr:    ":" + port,
 	}
 
 	log.Fatal(server.ListenAndServe())
@@ -76,6 +93,14 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	database       *database.Queries
 	platform       string
+	jwtSecret      string
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -87,34 +112,97 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	type User struct {
-		Email string `json:"email"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	u := User{}
-	err := decoder.Decode(&u)
+	user := User{}
+	err := decoder.Decode(&user)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
 
 	type Payload struct {
-		Id        uuid.UUID `json:"id"`
+		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
 	}
 
-	email := u.Email
+	email := user.Email
+	hashedPassword, err := auth.HashPassword(user.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Problem hashing password")
+	}
 
-	newUser, err := cfg.database.CreateUser(r.Context(), email)
+	newUser, err := cfg.database.CreateUser(r.Context(), database.CreateUserParams{Email: email, HashedPassword: hashedPassword})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not create user")
 		return
 	}
 
-	payload := &Payload{Id: newUser.ID, CreatedAt: newUser.CreatedAt, UpdatedAt: newUser.UpdatedAt, Email: newUser.Email}
+	payload := &Payload{ID: newUser.ID, CreatedAt: newUser.CreatedAt, UpdatedAt: newUser.UpdatedAt, Email: newUser.Email}
 	respondWithJSON(w, http.StatusCreated, payload)
+}
+
+func (cfg *apiConfig) loginUserHandler(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Password         string `json:"password"`
+		Email            string `json:"email"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
+	}
+	type response struct {
+		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
+		return
+	}
+
+	user, err := cfg.database.GetUserByEmail(r.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	match, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+	if err != nil || !match {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	expirationTime := time.Hour
+	if params.ExpiresInSeconds > 0 && params.ExpiresInSeconds <= 3600 {
+		expirationTime = time.Duration(params.ExpiresInSeconds) * time.Second
+	}
+
+	accessToken, err := auth.MakeJWT(
+		user.ID,
+		cfg.jwtSecret,
+		expirationTime,
+	)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create access JWT")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response{
+		User: User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		},
+		Token: accessToken,
+	})
 }
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
@@ -125,36 +213,79 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type Chirp struct {
-		Id        uuid.UUID `json:"id"`
+		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Body      string    `json:"body"`
-		UserId    uuid.UUID `json:"user_id"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
 
 	var payload []Chirp
 	for _, chirp := range chirps {
 		chirp := Chirp{
-			Id:        chirp.ID,
+			ID:        chirp.ID,
 			CreatedAt: chirp.CreatedAt,
 			UpdatedAt: chirp.UpdatedAt,
 			Body:      chirp.Body,
-			UserId:    chirp.UserID,
+			UserID:    chirp.UserID,
 		}
 		payload = append(payload, chirp)
 	}
 	respondWithJSON(w, http.StatusOK, payload)
 }
 
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	chirpIDString := r.PathValue("chirpID")
+	chirpID, err := uuid.Parse(chirpIDString)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Invalid UUID")
+		return
+	}
+
+	chirp, err := cfg.database.GetChirp(r.Context(), chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "No such chirp found")
+		return
+	}
+
+	type Payload struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Body      string    `json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
+	}
+
+	payload := &Payload{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	}
+
+	respondWithJSON(w, http.StatusOK, payload)
+}
+
 func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 	type Chirp struct {
-		Body   string    `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate JWT")
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	chirp := Chirp{}
-	err := decoder.Decode(&chirp)
+	err = decoder.Decode(&chirp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
@@ -167,25 +298,25 @@ func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 	cleanedBody := censorProfanity(chirp.Body)
 
 	type Payload struct {
-		Id        uuid.UUID `json:"id"`
+		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Body      string    `json:"body"`
-		UserId    uuid.UUID `json:"user_id"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
 
-	newChirp, err := cfg.database.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanedBody, UserID: chirp.UserId})
+	newChirp, err := cfg.database.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanedBody, UserID: userID})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong with chirp creation")
 		return
 	}
 
 	payload := &Payload{
-		Id:        newChirp.ID,
+		ID:        newChirp.ID,
 		CreatedAt: newChirp.CreatedAt,
 		UpdatedAt: newChirp.UpdatedAt,
 		Body:      cleanedBody,
-		UserId:    chirp.UserId,
+		UserID:    userID,
 	}
 	respondWithJSON(w, http.StatusCreated, payload)
 }
