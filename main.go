@@ -66,7 +66,7 @@ func loadEnvironmentVariables() (string, string, string) {
 		log.Fatal("JWT_SECRET environment variable not set")
 	}
 
-	return platform, dbURL, platform
+	return platform, dbURL, jwtSecret
 }
 
 func setupMux(mux *http.ServeMux, apiCfg *apiConfig, filepathRoot string) {
@@ -82,6 +82,8 @@ func setupMux(mux *http.ServeMux, apiCfg *apiConfig, filepathRoot string) {
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerUsersCreate)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerChirpsGet)
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerChirpsRetrieve)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerChirpsCreate)
