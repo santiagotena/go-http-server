@@ -10,7 +10,7 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 	chirpIDString := r.PathValue("chirpID")
 	chirpID, err := uuid.Parse(chirpIDString)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Invalid UUID", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid UUID", err)
 		return
 	}
 
