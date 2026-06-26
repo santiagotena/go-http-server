@@ -18,13 +18,14 @@ type apiConfig struct {
 	database       *database.Queries
 	platform       string
 	jwtSecret      string
+	polkaKey       string
 }
 
 func main() {
 	const filepathRoot = "."
 	const port = "8080"
 
-	platform, dbURL, jwtSecret := loadEnvironmentVariables()
+	platform, dbURL, jwtSecret, polkaKey := loadEnvironmentVariables()
 	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("error connecting to the database: %s", err)
@@ -35,6 +36,7 @@ func main() {
 		database:  dbQueries,
 		platform:  platform,
 		jwtSecret: jwtSecret,
+		polkaKey:  polkaKey,
 	}
 
 	mux := http.NewServeMux()
@@ -48,7 +50,7 @@ func main() {
 	log.Fatal(server.ListenAndServe())
 }
 
-func loadEnvironmentVariables() (string, string, string) {
+func loadEnvironmentVariables() (string, string, string, string) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -65,8 +67,12 @@ func loadEnvironmentVariables() (string, string, string) {
 	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET environment variable not set")
 	}
+	polkaKey := os.Getenv("POLKA_KEY")
+	if polkaKey == "" {
+		log.Fatal("POLKA_KEY environment variable not set")
+	}
 
-	return platform, dbURL, jwtSecret
+	return platform, dbURL, jwtSecret, polkaKey
 }
 
 func setupMux(mux *http.ServeMux, apiCfg *apiConfig, filepathRoot string) {

@@ -5,9 +5,16 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/santiagotena/go-http-server/internal/auth"
 )
 
 func (cfg *apiConfig) handlerPolkaWebhooks(w http.ResponseWriter, r *http.Request) {
+	polkaKey, err := auth.GetAPIKey(r.Header)
+	if err != nil || polkaKey != cfg.polkaKey {
+		respondWithError(w, http.StatusUnauthorized, "Invalid API Key", err)
+		return
+	}
+
 	event := "user.upgraded"
 	type parameters struct {
 		Event string `json:"event"`
@@ -18,7 +25,7 @@ func (cfg *apiConfig) handlerPolkaWebhooks(w http.ResponseWriter, r *http.Reques
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Decoding failed", err)
 		return
