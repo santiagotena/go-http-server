@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/santiagotena/go-http-server/internal/database"
 )
 
 func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
@@ -30,10 +31,28 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.database.GetAllChirps(r.Context())
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Something went wrong while getting chirps", err)
-		return
+	authorIDString := r.URL.Query().Get("author_id")
+	var chirps []database.Chirp
+	var err error
+
+	if authorIDString == "" {
+		chirps, err = cfg.database.GetAllChirps(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Something went wrong while getting chirps", err)
+			return
+		}
+	} else {
+		var authorID uuid.UUID
+		authorID, err = uuid.Parse(authorIDString)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid UUID", err)
+			return
+		}
+		chirps, err = cfg.database.GetChirpByUserId(r.Context(), authorID)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, "Could not get chirps from database", err)
+			return
+		}
 	}
 
 	var payload []Chirp
