@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/santiagotena/go-http-server/internal/database"
@@ -55,7 +56,7 @@ func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	var payload []Chirp
+	var response []Chirp
 	for _, chirp := range chirps {
 		chirp := Chirp{
 			ID:        chirp.ID,
@@ -64,7 +65,19 @@ func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Reque
 			Body:      chirp.Body,
 			UserID:    chirp.UserID,
 		}
-		payload = append(payload, chirp)
+		response = append(response, chirp)
 	}
-	respondWithJSON(w, http.StatusOK, payload)
+
+	sortParameter := r.URL.Query().Get("sort")
+	if sortParameter == "" || sortParameter == "asc" {
+		sort.Slice(response, func(i, j int) bool {
+			return response[i].CreatedAt.Before(response[j].CreatedAt)
+		})
+	} else if sortParameter == "desc" {
+		sort.Slice(response, func(i, j int) bool {
+			return response[i].CreatedAt.After(response[j].UpdatedAt)
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
